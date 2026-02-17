@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Environment / Secrets
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Database
+*.sqlite
+database.sqlite
+
+# Next.js
+.next/
+out/
+
+# Build output
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Misc
+*.tsbuildinfo
+
+# Skills (not needed in deployed app)
+Nextjs/
+Tailwind/
+Ui-ux/
+shadcn/
+frontend-design/
+Web Design/
