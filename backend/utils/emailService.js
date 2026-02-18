@@ -4,6 +4,37 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.EMAIL_FROM || 'CivicPulse <onboarding@resend.dev>';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'weareteamclarity@gmail.com';
 
+// Resend free-tier (onboarding@resend.dev) can only deliver to the account
+// owner's email. Set this to the email you signed up to Resend with.
+const RESEND_ACCOUNT_EMAIL = process.env.RESEND_ACCOUNT_EMAIL || ADMIN_EMAIL;
+
+// Helper: wraps the real send so every email is routed to the account owner
+// and a banner shows the intended recipient (useful for demos).
+async function sendEmail({ to, subject, html }) {
+    const intendedTo = to;
+    const actualTo = RESEND_ACCOUNT_EMAIL;
+    const banner =
+        intendedTo !== actualTo
+            ? `<div style="margin:0 0 16px;padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1e40af;">
+                 📬 <strong>Intended recipient:</strong> ${intendedTo}
+               </div>`
+            : '';
+    try {
+        await resend.emails.send({
+            from: FROM,
+            to: [actualTo],
+            subject,
+            html: html.replace(
+                '<!-- RECIPIENT_BANNER -->',
+                banner,
+            ),
+        });
+        console.log(`✉️  Email sent to ${actualTo} (intended: ${intendedTo})`);
+    } catch (err) {
+        console.error('Failed to send email:', err.message);
+    }
+}
+
 // ── Shared email wrapper ──
 function emailLayout(title, bodyContent) {
     return `<!DOCTYPE html>
@@ -20,6 +51,7 @@ function emailLayout(title, bodyContent) {
 </td></tr>
 <!-- Body -->
 <tr><td style="padding:32px 40px;">
+<!-- RECIPIENT_BANNER -->
 ${bodyContent}
 </td></tr>
 <!-- Footer -->
@@ -68,17 +100,11 @@ ${complaint.address || 'Not specified'}</td></tr>
 </table>
 <p style="color:#516275;font-size:14px;">You will receive updates as your complaint progresses through the resolution pipeline.</p>`;
 
-    try {
-        await resend.emails.send({
-            from: FROM,
-            to: [userEmail],
-            subject: `Report Filed: ${complaint.title || 'New Issue'} — CivicPulse`,
-            html: emailLayout('Report Confirmation', body),
-        });
-        console.log(`✉️  Confirmation email sent to ${userEmail}`);
-    } catch (err) {
-        console.error('Failed to send confirmation email:', err.message);
-    }
+    await sendEmail({
+        to: userEmail,
+        subject: `Report Filed: ${complaint.title || 'New Issue'} — CivicPulse`,
+        html: emailLayout('Report Confirmation', body),
+    });
 };
 
 // ── 2. Status Update → Citizen ──
@@ -102,17 +128,11 @@ ${newStatus === 'Resolved' ? `
 </div>` : ''}
 <p style="color:#516275;font-size:14px;">Thank you for helping make your community better.</p>`;
 
-    try {
-        await resend.emails.send({
-            from: FROM,
-            to: [userEmail],
-            subject: `Status Update: ${complaint.title || 'Issue'} → ${newStatus} — CivicPulse`,
-            html: emailLayout('Status Update', body),
-        });
-        console.log(`✉️  Status update email sent to ${userEmail}`);
-    } catch (err) {
-        console.error('Failed to send status update email:', err.message);
-    }
+    await sendEmail({
+        to: userEmail,
+        subject: `Status Update: ${complaint.title || 'Issue'} → ${newStatus} — CivicPulse`,
+        html: emailLayout('Status Update', body),
+    });
 };
 
 // ── 3. Admin Alert → Admin ──
@@ -142,17 +162,11 @@ ${(complaint.description || 'No description').substring(0, 120)}</td></tr>
 </table>
 <p style="color:#516275;font-size:14px;">Log in to the Admin Dashboard to review and assign this ticket.</p>`;
 
-    try {
-        await resend.emails.send({
-            from: FROM,
-            to: [ADMIN_EMAIL],
-            subject: `🚨 New Report: ${complaint.title || 'Issue'} — CivicPulse Admin`,
-            html: emailLayout('Admin Alert', body),
-        });
-        console.log(`✉️  Admin alert email sent to ${ADMIN_EMAIL}`);
-    } catch (err) {
-        console.error('Failed to send admin alert email:', err.message);
-    }
+    await sendEmail({
+        to: ADMIN_EMAIL,
+        subject: `🚨 New Report: ${complaint.title || 'Issue'} — CivicPulse Admin`,
+        html: emailLayout('Admin Alert', body),
+    });
 };
 
 // ── 4. OTP Verification Email ──
@@ -177,17 +191,11 @@ This OTP is valid for <strong>10 minutes</strong>. Do not share it with anyone.
 </p>
 </div>`;
 
-    try {
-        await resend.emails.send({
-            from: FROM,
-            to: [userEmail],
-            subject: `Your CivicPulse OTP: ${otp}`,
-            html: emailLayout('Email Verification', body),
-        });
-        console.log(`✉️  OTP email sent to ${userEmail}`);
-    } catch (err) {
-        console.error('Failed to send OTP email:', err.message);
-    }
+    await sendEmail({
+        to: userEmail,
+        subject: `Your CivicPulse OTP: ${otp}`,
+        html: emailLayout('Email Verification', body),
+    });
 };
 
 // ── 5. Welcome Email (after verification) ──
@@ -214,16 +222,10 @@ Your account has been verified successfully. You're now a part of the CivicPulse
 </div>
 <p style="color:#516275;font-size:14px;">Start making your community better today!</p>`;
 
-    try {
-        await resend.emails.send({
-            from: FROM,
-            to: [userEmail],
-            subject: `Welcome to CivicPulse, ${userName}! 🎉`,
-            html: emailLayout('Welcome', body),
-        });
-        console.log(`✉️  Welcome email sent to ${userEmail}`);
-    } catch (err) {
-        console.error('Failed to send welcome email:', err.message);
-    }
+    await sendEmail({
+        to: userEmail,
+        subject: `Welcome to CivicPulse, ${userName}! 🎉`,
+        html: emailLayout('Welcome', body),
+    });
 };
 
