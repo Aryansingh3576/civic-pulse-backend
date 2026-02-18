@@ -7,10 +7,9 @@ const userSchema = new mongoose.Schema({
     password_hash: { type: String, required: true },
     role: { type: String, enum: ['citizen', 'admin', 'worker'], default: 'citizen' },
     points: { type: Number, default: 0 },
-    // OTP verification
+    // Clerk integration
+    clerkId: { type: String, sparse: true },
     isVerified: { type: Boolean, default: false },
-    otp: { type: String },
-    otpExpiry: { type: Date },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Hash password before saving

@@ -1,35 +1,22 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = process.env.EMAIL_FROM || 'CivicPulse <onboarding@resend.dev>';
+// ── Gmail SMTP transporter ──
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD,
+    },
+});
+
+const FROM = `CivicPulse <${process.env.GMAIL_USER}>`;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'weareteamclarity@gmail.com';
 
-// Resend free-tier (onboarding@resend.dev) can only deliver to the account
-// owner's email. Set this to the email you signed up to Resend with.
-const RESEND_ACCOUNT_EMAIL = process.env.RESEND_ACCOUNT_EMAIL || ADMIN_EMAIL;
-
-// Helper: wraps the real send so every email is routed to the account owner
-// and a banner shows the intended recipient (useful for demos).
+// ── Send mail helper ──
 async function sendEmail({ to, subject, html }) {
-    const intendedTo = to;
-    const actualTo = RESEND_ACCOUNT_EMAIL;
-    const banner =
-        intendedTo !== actualTo
-            ? `<div style="margin:0 0 16px;padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1e40af;">
-                 📬 <strong>Intended recipient:</strong> ${intendedTo}
-               </div>`
-            : '';
     try {
-        await resend.emails.send({
-            from: FROM,
-            to: [actualTo],
-            subject,
-            html: html.replace(
-                '<!-- RECIPIENT_BANNER -->',
-                banner,
-            ),
-        });
-        console.log(`✉️  Email sent to ${actualTo} (intended: ${intendedTo})`);
+        await transporter.sendMail({ from: FROM, to, subject, html });
+        console.log(`✉️  Email sent to ${to}`);
     } catch (err) {
         console.error('Failed to send email:', err.message);
     }
@@ -51,7 +38,6 @@ function emailLayout(title, bodyContent) {
 </td></tr>
 <!-- Body -->
 <tr><td style="padding:32px 40px;">
-<!-- RECIPIENT_BANNER -->
 ${bodyContent}
 </td></tr>
 <!-- Footer -->
@@ -169,33 +155,10 @@ ${(complaint.description || 'No description').substring(0, 120)}</td></tr>
     });
 };
 
-// ── 4. OTP Verification Email ──
+// ── 4. OTP Verification Email (DEPRECATED — Clerk handles OTP now) ──
+// Kept as a no-op in case any old code references it
 exports.sendOTPEmail = async (userEmail, otp, userName) => {
-    const body = `
-<h2 style="margin:0 0 16px;color:#1a2332;font-size:20px;">Verify Your Account 🔐</h2>
-<p style="color:#516275;font-size:15px;line-height:1.6;">
-Hi ${userName || 'there'},<br>
-Thank you for registering with CivicPulse. Please use the following OTP to verify your email address:
-</p>
-<div style="margin:24px 0;text-align:center;">
-<div style="display:inline-block;background:linear-gradient(135deg,#0d7377 0%,#14919b 100%);color:#ffffff;padding:20px 40px;border-radius:16px;font-size:36px;font-weight:700;letter-spacing:8px;font-family:'Courier New',monospace;">
-${otp}
-</div>
-</div>
-<p style="color:#516275;font-size:14px;text-align:center;">
-This OTP is valid for <strong>10 minutes</strong>. Do not share it with anyone.
-</p>
-<div style="margin:24px 0;padding:16px;background:#fef3c7;border-radius:8px;">
-<p style="margin:0;color:#92400e;font-size:13px;">
-⚠️ If you didn't create an account on CivicPulse, please ignore this email.
-</p>
-</div>`;
-
-    await sendEmail({
-        to: userEmail,
-        subject: `Your CivicPulse OTP: ${otp}`,
-        html: emailLayout('Email Verification', body),
-    });
+    console.log('⚠️  sendOTPEmail is deprecated — Clerk handles OTP emails now');
 };
 
 // ── 5. Welcome Email (after verification) ──
@@ -228,4 +191,3 @@ Your account has been verified successfully. You're now a part of the CivicPulse
         html: emailLayout('Welcome', body),
     });
 };
-

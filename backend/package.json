@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@clerk/backend": "^2.31.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.2.4",
@@ -22,9 +23,11 @@
     "mongoose": "^9.2.1",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
+    "nodemailer": "^8.0.1",
     "nodemon": "^3.1.11",
     "pg": "^8.18.0",
     "resend": "^6.9.2",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "svix": "^1.85.0"
   }
 }
