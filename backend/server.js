@@ -15,7 +15,7 @@ connectDB();
 app.use(helmet());
 app.use(cors());
 app.use(morgan('dev'));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 app.get('/', (req, res) => {
@@ -32,10 +32,31 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
     var statusCode = err.statusCode || 500;
     var status = err.status || 'error';
+    var message = err.isOperational ? err.message : 'Something went wrong!';
+
+    // Handle Mongoose CastError (invalid ObjectId)
+    if (err.name === 'CastError' && err.kind === 'ObjectId') {
+        statusCode = 400;
+        status = 'fail';
+        message = 'Invalid ID format';
+    }
+    // Handle Mongoose ValidationError
+    if (err.name === 'ValidationError') {
+        statusCode = 400;
+        status = 'fail';
+        message = Object.values(err.errors).map(e => e.message).join(', ');
+    }
+    // Handle payload too large
+    if (err.type === 'entity.too.large') {
+        statusCode = 413;
+        status = 'fail';
+        message = 'Request payload too large. Please use a smaller image.';
+    }
+
     // Always log errors so they appear in Render/deployment logs
     console.error('ERROR:', err.message);
     if (err.stack) console.error(err.stack);
-    res.status(statusCode).json({ status: status, message: err.isOperational ? err.message : 'Something went wrong!' });
+    res.status(statusCode).json({ status: status, message: message });
 });
 
 app.listen(PORT, () => {

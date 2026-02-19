@@ -24,6 +24,7 @@ const issueSchema = new mongoose.Schema({
     // Community sharing
     is_public: { type: Boolean, default: false },
     is_anonymous: { type: Boolean, default: false },
+    sla_deadline: { type: Date },
     // Store old SQLite id for migration reference
     _sqlite_id: { type: Number },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });

@@ -7,6 +7,11 @@ const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
 const { logEvent } = require('../utils/timelineLogger');
 
+// Strict check for valid MongoDB ObjectId (24-char hex string)
+function isObjectId(id) {
+    return /^[0-9a-fA-F]{24}$/.test(id);
+}
+
 exports.createComplaint = catchAsync(async (req, res, next) => {
     const { title, description, category, category_id, latitude, longitude, photo_url, address, is_public, is_anonymous } = req.body;
     const userId = req.user._id;
@@ -132,10 +137,20 @@ exports.getAllComplaints = catchAsync(async (req, res, next) => {
 exports.getComplaintById = catchAsync(async (req, res, next) => {
     const { id } = req.params;
 
-    const issue = await Issue.findById(id)
-        .populate('category_id', 'name department sla_hours')
-        .populate('user_id', 'name email')
-        .lean();
+    let issue;
+    if (isObjectId(id)) {
+        issue = await Issue.findById(id)
+            .populate('category_id', 'name department sla_hours')
+            .populate('user_id', 'name email')
+            .lean();
+    }
+    // Fallback: try finding by legacy SQLite id
+    if (!issue && /^\d+$/.test(id)) {
+        issue = await Issue.findOne({ _sqlite_id: parseInt(id) })
+            .populate('category_id', 'name department sla_hours')
+            .populate('user_id', 'name email')
+            .lean();
+    }
 
     if (!issue) {
         return next(new AppError('Complaint not found', 404));
@@ -143,8 +158,8 @@ exports.getComplaintById = catchAsync(async (req, res, next) => {
 
     let fraudFlags = [];
 
-    // Admin-only Fraud Check
-    if (req.user.role === 'admin' || req.user.role === 'worker') {
+    // Admin-only Fraud Check (only if authenticated user is admin/worker)
+    if (req.user && (req.user.role === 'admin' || req.user.role === 'worker')) {
         const reporterId = issue.user_id?._id;
 
         // 1. High Velocity Submission
@@ -167,9 +182,33 @@ exports.getComplaintById = catchAsync(async (req, res, next) => {
         }
     }
 
+    // Determine viewer's relationship to this complaint
+    const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'worker');
+    const isOwner = req.user && issue.user_id?._id?.toString() === req.user._id?.toString();
+    const canSeeReporterDetails = isAdmin || isOwner;
+
+    // Build reporter info based on privacy rules
+    let reporterName, reporterEmail, reporterUserId;
+    if (canSeeReporterDetails) {
+        // Admins and owners always see full details
+        reporterName = issue.user_id?.name || 'Anonymous';
+        reporterEmail = issue.user_id?.email || null;
+        reporterUserId = issue.user_id?._id || null;
+    } else if (issue.is_anonymous) {
+        // Anonymous complaints hide everything for public viewers
+        reporterName = 'Anonymous Citizen';
+        reporterEmail = null;
+        reporterUserId = null;
+    } else {
+        // Non-anonymous: show name but hide email for public
+        reporterName = issue.user_id?.name || 'Anonymous';
+        reporterEmail = null;
+        reporterUserId = null;
+    }
+
     const complaint = {
         id: issue._id,
-        user_id: issue.user_id?._id,
+        user_id: reporterUserId,
         title: issue.title,
         description: issue.description,
         status: issue.status,
@@ -183,15 +222,16 @@ exports.getComplaintById = catchAsync(async (req, res, next) => {
         resolution_photo_url: issue.resolution_photo_url,
         resolution_type: issue.resolution_type,
         is_escalated: issue.is_escalated,
+        is_anonymous: issue.is_anonymous,
         created_at: issue.created_at,
         updated_at: issue.updated_at,
         sla_deadline: issue.sla_deadline,
         category: issue.category_id?.name || 'General',
         department: issue.category_id?.department || null,
         sla_hours: issue.category_id?.sla_hours || 24,
-        reporter_name: issue.user_id?.name || 'Anonymous',
-        reporter_email: issue.user_id?.email || null,
-        fraud_flags: fraudFlags,
+        reporter_name: reporterName,
+        reporter_email: reporterEmail,
+        fraud_flags: canSeeReporterDetails ? fraudFlags : [],
     };
 
     res.status(200).json({
@@ -252,24 +292,33 @@ exports.upvoteComplaint = catchAsync(async (req, res, next) => {
     const issueId = req.params.id;
     const userId = req.user._id;
 
-    const issue = await Issue.findById(issueId);
+    let issue;
+    if (isObjectId(issueId)) {
+        issue = await Issue.findById(issueId);
+    }
+    // Fallback: try finding by legacy SQLite id
+    if (!issue && /^\d+$/.test(issueId)) {
+        issue = await Issue.findOne({ _sqlite_id: parseInt(issueId) });
+    }
     if (!issue) {
         return next(new AppError('Issue not found', 404));
     }
 
+    const realId = issue._id; // Always use the MongoDB _id for vote operations
+
     // Check if already voted
-    const existingVote = await Vote.findOne({ issue_id: issueId, user_id: userId });
+    const existingVote = await Vote.findOne({ issue_id: realId, user_id: userId });
 
     if (existingVote) {
         // Remove vote (toggle)
         await Vote.deleteOne({ _id: existingVote._id });
-        await Issue.findByIdAndUpdate(issueId, { $inc: { upvotes: -1 } });
+        await Issue.findByIdAndUpdate(realId, { $inc: { upvotes: -1 } });
         return res.status(200).json({ status: 'success', message: 'Vote removed', voted: false });
     }
 
     // Insert vote
-    await Vote.create({ issue_id: issueId, user_id: userId });
-    await Issue.findByIdAndUpdate(issueId, { $inc: { upvotes: 1 } });
+    await Vote.create({ issue_id: realId, user_id: userId });
+    await Issue.findByIdAndUpdate(realId, { $inc: { upvotes: 1 } });
 
     // Award +5 points
     await User.findByIdAndUpdate(userId, { $inc: { points: 5 } });
@@ -279,7 +328,7 @@ exports.upvoteComplaint = catchAsync(async (req, res, next) => {
 
 // ─── Update complaint status (admin only) ───
 exports.updateStatus = catchAsync(async (req, res, next) => {
-    const issueId = req.params.id;
+    const paramId = req.params.id;
     const { status: newStatus, resolution_photo_url } = req.body;
     const validStatuses = ['Submitted', 'Assigned', 'In Progress', 'Resolved', 'Closed'];
 
@@ -287,8 +336,20 @@ exports.updateStatus = catchAsync(async (req, res, next) => {
         return next(new AppError('Invalid status. Must be one of: ' + validStatuses.join(', '), 400));
     }
 
+    // Require resolution photo when resolving
+    if (newStatus === 'Resolved' && !resolution_photo_url) {
+        return next(new AppError('A resolution photo is required when marking a complaint as Resolved.', 400));
+    }
+
     if (req.user.role !== 'admin' && req.user.role !== 'worker') {
         return next(new AppError('Only admins can update complaint status', 403));
+    }
+
+    // Resolve the real MongoDB _id
+    let issueId = paramId;
+    if (!isObjectId(paramId) && /^\d+$/.test(paramId)) {
+        const found = await Issue.findOne({ _sqlite_id: parseInt(paramId) }).select('_id');
+        if (found) issueId = found._id;
     }
 
     const updateData = {
@@ -545,7 +606,14 @@ exports.checkFraud = catchAsync(async (req, res, next) => {
 exports.getTimeline = catchAsync(async (req, res, next) => {
     const { id } = req.params;
 
-    const timeline = await Timeline.find({ issue_id: id })
+    // Resolve real MongoDB _id if legacy integer ID is used
+    let issueId = id;
+    if (!isObjectId(id) && /^\d+$/.test(id)) {
+        const found = await Issue.findOne({ _sqlite_id: parseInt(id) }).select('_id');
+        if (found) issueId = found._id;
+    }
+
+    const timeline = await Timeline.find({ issue_id: issueId })
         .populate('user_id', 'name role')
         .sort({ created_at: -1 })
         .lean();
@@ -575,7 +643,7 @@ exports.getCommunityFeed = catchAsync(async (req, res, next) => {
     const sort = req.query.sort || 'newest'; // newest, most_voted
     const category = req.query.category;
 
-    const filter = { is_public: true };
+    const filter = {};
     if (category && category !== 'all') {
         const cat = await Category.findOne({ name: { $regex: new RegExp(category, 'i') } });
         if (cat) filter.category_id = cat._id;

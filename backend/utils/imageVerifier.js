@@ -3,33 +3,36 @@ const Groq = require('groq-sdk');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 /**
- * Verify if an uploaded image is relevant to the complaint category.
- * Uses Groq's vision model to analyze the image.
+ * Analyze an uploaded image to detect civic issues.
+ * Uses Groq's vision model for unbiased detection.
  *
- * @param {string} imageBase64 - Base64-encoded image data
- * @param {string} category - The complaint category (e.g., "Pothole", "Garbage")
- * @param {string} description - Optional complaint description for context
- * @returns {Object} { isRelevant, confidence, detectedIssue, explanation }
+ * @param {string} imageBase64 - Base64-encoded image data (without data URI prefix)
+ * @param {string} _category - Ignored (kept for API compat)
+ * @param {string} _description - Ignored (kept for API compat)
+ * @returns {Object} { isRelevant, confidence, detectedIssue, suggestedCategory, explanation }
  */
-exports.verifyImage = async (imageBase64, category, description = '') => {
+exports.verifyImage = async (imageBase64, _category = '', _description = '') => {
     try {
-        const prompt = `You are a civic issue image verification system. Analyze this image and determine:
+        const prompt = `You are an image analysis system for a civic issue reporting platform. Look at this image carefully and independently determine what you see.
 
-1. What civic/infrastructure issue is visible in the image?
-2. Is the image relevant to the category "${category}"?
-3. Does the image appear to be a genuine photo of a civic issue (not a screenshot, meme, or unrelated image)?
+Your task:
+1. Describe what is visible in the image objectively.
+2. Determine if this image shows a real civic or infrastructure issue (e.g. damaged road, overflowing garbage, broken street light, water leak, stray animals, drainage problem, electrical hazard, or public safety concern).
+3. If the image does NOT show a civic issue (e.g. it is a selfie, a person, a screenshot, a meme, food, an indoor scene, a random object, etc.), you MUST set isRelevant to false and suggestedCategory to "Not a Civic Issue".
 
-Respond ONLY in this exact JSON format:
+IMPORTANT: Do NOT assume the image shows a civic issue. Many uploads may be irrelevant photos. Be honest about what you actually see.
+
+Respond ONLY in this exact JSON format (no other text):
 {
-  "isRelevant": true/false,
-  "confidence": 0.0-1.0,
-  "detectedIssue": "brief description of what you see",
-  "suggestedCategory": "most appropriate category from: Pothole, Garbage, Street Light, Water Leakage, Stray Animals, Road Damage, Drainage, Public Safety, Electricity, Other",
-  "explanation": "brief explanation of your assessment"
+  "isRelevant": true or false,
+  "confidence": 0.0 to 1.0,
+  "detectedIssue": "objective description of what you actually see in the image",
+  "suggestedCategory": "one of: Pothole, Garbage, Street Light, Water Leakage, Stray Animals, Road Damage, Drainage, Public Safety, Electricity, Not a Civic Issue",
+  "explanation": "why you chose this category"
 }`;
 
         const chatCompletion = await groq.chat.completions.create({
-            model: 'llama-4-scout-17b-16e-instruct',
+            model: 'meta-llama/llama-4-scout-17b-16e-instruct',
             messages: [
                 {
                     role: 'user',
@@ -49,6 +52,7 @@ Respond ONLY in this exact JSON format:
         });
 
         const responseText = chatCompletion.choices[0]?.message?.content || '';
+        console.log('AI Vision response:', responseText);
 
         // Extract JSON from response
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -77,7 +81,7 @@ Respond ONLY in this exact JSON format:
             isRelevant: true,
             confidence: 0,
             detectedIssue: 'Verification unavailable',
-            suggestedCategory: category || 'Other',
+            suggestedCategory: 'Other',
             explanation: 'Image verification service temporarily unavailable',
         };
     }
